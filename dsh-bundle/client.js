@@ -421,6 +421,14 @@ window.__ModuleLoader__.load({
       const normWs = (value) => String(value || '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
       const dshWorkspaceOf = (ws) => (brains?.dshWorkspaces || [])
         .find((item) => normWs(item.path) === normWs(ws));
+      const dshWorkspaceName = (meta, ws) => {
+        const title = String(meta?.title || '').trim();
+        if (title === 'default-workspace') {
+          const lang = String(document.documentElement?.lang || navigator.language || '').toLowerCase();
+          return lang.startsWith('zh') ? '默认工作区' : 'Default Workspace';
+        }
+        return title || String(ws).split(/[\\/]/).filter(Boolean).pop() || ws;
+      };
       const currentWorkspaceEntry = brains?.workspaces?.[brains?.currentWorkspace];
       const months = useMemo(() => [...new Set((data?.recent || [])
         .map((p) => String(p.date || '').slice(0, 7))
@@ -480,7 +488,10 @@ window.__ModuleLoader__.load({
           ? { ...node, nodeX: nodePos[node.id].x, nodeY: nodePos[node.id].y }
           : node);
         const brainNodes = bs.map((b, i) => placed({
-          ...b, kind: 'brain', nodeX: 50, nodeY: 30 + i * 70, w: 200, h: 48,
+          ...b,
+          kind: 'brain',
+          connected: Object.values(draft).some((ids) => Array.isArray(ids) && ids.includes(b.id)),
+          nodeX: 50, nodeY: 30 + i * 70, w: 200, h: 48,
         }));
         const wsNodes = wss.map((ws, i) => {
           const meta = dshWorkspaceOf(ws);
@@ -489,9 +500,10 @@ window.__ModuleLoader__.load({
             ...brains.workspaces[ws],
             id: ws,
             kind: 'workspace',
-            name: meta?.title || String(ws).split(/[\\/]/).filter(Boolean).pop() || ws,
+            name: dshWorkspaceName(meta, ws),
             sessionCount: selectedSessions.length,
             sessionTotal: meta?.sessions?.length || 0,
+            connected: (draft[ws] || []).length > 0,
             sub: ws,
             nodeX: 500,
             nodeY: 30 + i * 70,
@@ -714,20 +726,23 @@ window.__ModuleLoader__.load({
           const laneX = Math.min(x1, x2) - 24;
           return `M ${x1} ${y1} C ${laneX} ${y1}, ${laneX} ${y2}, ${x2} ${y2}`;
         };
-        const activeBg = graphDark ? '#243a5e' : 'var(--dsw-alias-brand-primary)';
-        const activeBorder = graphDark ? '#6ea8fe' : 'var(--dsw-alias-brand-primary)';
-        const nodeBox = (node, active) => ({
-          position: 'absolute',
-          left: node.nodeX, top: node.nodeY, width: node.w, height: node.h,
-          padding: '6px 18px', boxSizing: 'border-box', borderRadius: 10,
-          overflow: 'visible', cursor: 'pointer', userSelect: 'none',
-          background: active ? activeBg : (graphDark ? '#24262c' : '#ffffff'),
-          border: `1px solid ${active ? activeBorder : (graphDark ? '#3a3d45' : 'var(--dsw-alias-border-l1)')}`,
-          color: active ? '#FFFFFF' : (graphDark ? '#e8e8ea' : 'var(--dsw-alias-label-primary)'),
-          boxShadow: hoverNode === node.id
-            ? '0 0 0 3px rgba(34,197,94,.28), 0 8px 24px rgba(0,0,0,.22)'
-            : '0 6px 18px rgba(0,0,0,.18)',
-        });
+        const connectedBg = graphDark ? '#191b20' : '#1e1f23';
+        const connectedBorder = graphDark ? '#46536a' : '#30333a';
+        const nodeBox = (node, active) => {
+          const emphasized = Boolean(active || node.connected);
+          return {
+            position: 'absolute',
+            left: node.nodeX, top: node.nodeY, width: node.w, height: node.h,
+            padding: '6px 18px', boxSizing: 'border-box', borderRadius: 10,
+            overflow: 'visible', cursor: 'pointer', userSelect: 'none',
+            background: emphasized ? connectedBg : (graphDark ? '#2b2e37' : '#ffffff'),
+            border: `1px solid ${emphasized ? connectedBorder : (graphDark ? '#3a3d45' : 'var(--dsw-alias-border-l1)')}`,
+            color: emphasized ? '#FFFFFF' : (graphDark ? '#e8e8ea' : 'var(--dsw-alias-label-primary)'),
+            boxShadow: hoverNode === node.id
+              ? '0 0 0 3px rgba(34,197,94,.28), 0 8px 24px rgba(0,0,0,.22)'
+              : '0 6px 18px rgba(0,0,0,.18)',
+          };
+        };
         return h('div', {
           style: {
             ...(graphMax ? S.graphFullscreen : S.graphWrap),
@@ -794,7 +809,7 @@ window.__ModuleLoader__.load({
                 const hidden = hiddenWs.includes(ws);
                 const current = brains.currentWorkspace === ws;
                 const meta = dshWorkspaceOf(ws);
-                const name = meta?.title || String(ws).split(/[\\/]/).filter(Boolean).pop() || ws;
+                const name = dshWorkspaceName(meta, ws);
                 const sessionsList = meta?.sessions || [];
                 const selectedSessions = sessionsFor(ws, meta);
                 const selectedIds = new Set(selectedSessions.map((session) => session.id));
@@ -1129,6 +1144,8 @@ window.__ModuleLoader__.load({
                     ...nodeBox(node, active),
                     display: 'flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
                     transition: nodeDrag ? 'none' : 'left .22s ease, top .22s ease, background .15s, border-color .15s',
                     zIndex: hoverCard === node.id || nodeDrag?.id === node.id || graphSelected === node.id ? 20 : 1,
                     pointerEvents: nodeDrag && nodeDrag.id !== node.id ? 'none' : 'auto',
@@ -1137,6 +1154,7 @@ window.__ModuleLoader__.load({
                   onMouseEnter: () => showCard(node.id),
                   onMouseLeave: () => {
                     hideCard();
+                    if (graphSelected === node.id) setGraphSelected('');
                     if (graphMenu) closeMenuSoon();
                   },
                   onPointerDown: (e) => {
@@ -1341,6 +1359,11 @@ window.__ModuleLoader__.load({
                   'data-node': node.id,
                   style: {
                     ...nodeBox(node, active),
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    textAlign: 'center',
                     zIndex: hoverCard === node.id || nodeDrag?.id === node.id ? 20 : 1,
                     transition: nodeDrag ? 'none' : 'left .22s ease, top .22s ease',
                     pointerEvents: nodeDrag && nodeDrag.id !== node.id ? 'none' : 'auto',
@@ -1348,6 +1371,7 @@ window.__ModuleLoader__.load({
                   onMouseEnter: () => showCard(node.id),
                   onMouseLeave: () => {
                     hideCard();
+                    if (graphSelected === node.id) setGraphSelected('');
                     if (graphMenu) closeMenuSoon();
                   },
                   onPointerDown: (e) => {
@@ -1445,6 +1469,10 @@ window.__ModuleLoader__.load({
                   border: '1px dashed var(--dsw-alias-border-l1)',
                   color: graphDark ? '#d8d8dc' : 'var(--dsw-alias-label-secondary)',
                   fontSize: 11,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center',
                   overflow: 'hidden',
                   whiteSpace: 'nowrap',
                   textOverflow: 'ellipsis',
