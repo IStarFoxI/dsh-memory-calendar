@@ -181,6 +181,9 @@ window.__ModuleLoader__.load({
         border: 'none', borderRadius: 5, background: 'transparent', cursor: 'pointer',
         color: 'var(--dsw-alias-label-primary)', fontSize: 12,
       },
+      graphMenuDivider: {
+        height: 1, margin: '3px 6px', background: 'var(--dsw-alias-border-l1)',
+      },
       nodeAction: {
         position: 'absolute', top: '50%', marginTop: -13,
         width: 26, height: 26, borderRadius: 999,
@@ -334,6 +337,7 @@ window.__ModuleLoader__.load({
       const [connectMode, setConnectMode] = useState(false);
       const [connectBrain, setConnectBrain] = useState('');
       const [graphMenu, setGraphMenu] = useState(null);
+      const [graphMenuClosing, setGraphMenuClosing] = useState(false);
       const [graphConfirm, setGraphConfirm] = useState(null);
       const [groupDraft, setGroupDraft] = useState(null);
       const [groupLinkConfirm, setGroupLinkConfirm] = useState(null);
@@ -342,6 +346,24 @@ window.__ModuleLoader__.load({
 
       const [drag, setDrag] = useState(null);
       const graphInnerRef = useRef(null);
+
+      useEffect(() => {
+        const onBlur = () => {
+          setLinkDraft(null);
+          setNodeDrag(null);
+          setPanDrag(null);
+          setFlowLine(null);
+        };
+        window.addEventListener('blur', onBlur);
+        return () => window.removeEventListener('blur', onBlur);
+      }, []);
+
+      useEffect(() => {
+        if (!linkDraft && !nodeDrag) return undefined;
+        const prev = document.body.style.userSelect;
+        document.body.style.userSelect = 'none';
+        return () => { document.body.style.userSelect = prev; };
+      }, [linkDraft, nodeDrag]);
 
       useEffect(() => {
         if (!brains) return;
@@ -660,12 +682,23 @@ window.__ModuleLoader__.load({
         });
       }
 
+      function closeGraphMenu() {
+        if (!graphMenu || graphMenuClosing) return;
+        setGraphMenuClosing(true);
+        if (menuTimer.current) clearTimeout(menuTimer.current);
+        menuTimer.current = setTimeout(() => {
+          setGraphMenu(null);
+          setGraphMenuClosing(false);
+        }, 130);
+      }
+
       function closeMenuSoon() {
         if (menuTimer.current) clearTimeout(menuTimer.current);
-        menuTimer.current = setTimeout(() => setGraphMenu(null), 500);
+        menuTimer.current = setTimeout(() => closeGraphMenu(), 500);
       }
 
       function keepMenuOpen() {
+        if (graphMenuClosing) return;
         if (menuTimer.current) clearTimeout(menuTimer.current);
       }
 
@@ -747,6 +780,11 @@ window.__ModuleLoader__.load({
           style: {
             ...(graphMax ? S.graphFullscreen : S.graphWrap),
             background: graphDark ? '#17181c' : '#f2f2ef',
+            userSelect: linkDraft || nodeDrag ? 'none' : 'text',
+            WebkitUserSelect: linkDraft || nodeDrag ? 'none' : 'text',
+          },
+          onSelectStart: (e) => {
+            if (linkDraft || nodeDrag) e.preventDefault();
           },
           onContextMenu: (e) => {
             if (linkDraft) {
@@ -756,7 +794,7 @@ window.__ModuleLoader__.load({
             }
           },
         },
-          h('style', null, '@keyframes mcRipple{0%{box-shadow:0 0 0 0 rgba(34,197,94,.65)}100%{box-shadow:0 0 0 12px rgba(34,197,94,0)}}@keyframes mcPop{0%{opacity:0;transform:scale(.55)}100%{opacity:1;transform:scale(1)}}@keyframes mcBlink{0%,100%{opacity:1}50%{opacity:.35}}@keyframes mcFlow{to{stroke-dashoffset:-14}}@keyframes mcSlide{0%{opacity:0;transform:translateX(-8px)}100%{opacity:1;transform:translateX(0)}}@keyframes mcPathScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}[data-mc-path]{display:inline-block;max-width:100%;overflow:hidden;white-space:nowrap;vertical-align:bottom;mask-image:linear-gradient(90deg,#000 0%,#000 62%,transparent 100%);-webkit-mask-image:linear-gradient(90deg,#000 0%,#000 62%,transparent 100%)}[data-mc-inner]{display:inline-flex;gap:40px;width:max-content}[data-mc-inner]>span+span{opacity:0}[data-mc-path]:hover [data-mc-inner]{animation:mcPathScroll 8s linear 2s infinite}[data-mc-path]:hover [data-mc-inner]>span+span{opacity:1;transition:opacity 0s linear 2s}'),
+          h('style', null, '@keyframes mcRipple{0%{box-shadow:0 0 0 0 rgba(34,197,94,.65)}100%{box-shadow:0 0 0 12px rgba(34,197,94,0)}}@keyframes mcPop{0%{opacity:0;transform:scale(.55)}100%{opacity:1;transform:scale(1)}}@keyframes mcBlink{0%,100%{opacity:1}50%{opacity:.35}}@keyframes mcFlow{to{stroke-dashoffset:-14}}@keyframes mcSlide{0%{opacity:0;transform:translateX(-8px)}100%{opacity:1;transform:translateX(0)}}@keyframes mcPathScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}[data-mc-path]{display:inline-block;max-width:100%;overflow:hidden;white-space:nowrap;vertical-align:bottom;mask-image:linear-gradient(90deg,#000 0%,#000 62%,transparent 100%);-webkit-mask-image:linear-gradient(90deg,#000 0%,#000 62%,transparent 100%)}[data-mc-inner]{display:inline-flex;gap:40px;width:max-content}[data-mc-inner]>span+span{opacity:0}[data-mc-path]:hover [data-mc-inner]{animation:mcPathScroll 8s linear 2s infinite}[data-mc-path]:hover [data-mc-inner]>span+span{opacity:1;transition:opacity 0s linear 2s}@keyframes mcMenuIn{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}@keyframes mcMenuOut{to{opacity:0;transform:translateY(-4px) scale(.98)}}'),
           h('div', { style: { ...S.rowInline, justifyContent: 'space-between' } },
             h('div', { style: S.rowInline },
               h('button', {
@@ -1198,6 +1236,7 @@ window.__ModuleLoader__.load({
                     }
                     const rect = graphInnerRef.current?.getBoundingClientRect();
                     if (!rect) return;
+                    setGraphMenuClosing(false);
                     setGraphMenu({
                       x: (e.clientX - rect.left) / graphZoom,
                       y: (e.clientY - rect.top) / graphZoom,
@@ -1430,6 +1469,7 @@ window.__ModuleLoader__.load({
                     e.preventDefault();
                     const rect = graphInnerRef.current?.getBoundingClientRect();
                     if (!rect) return;
+                    setGraphMenuClosing(false);
                     setGraphMenu({
                       x: (e.clientX - rect.left) / graphZoom,
                       y: (e.clientY - rect.top) / graphZoom,
@@ -1608,6 +1648,8 @@ window.__ModuleLoader__.load({
                   left: Math.min(graphMenu.x + 8, 760 - 150),
                   top: Math.min(graphMenu.y, graph.H - 180),
                   zIndex: 30,
+                  animation: graphMenuClosing ? 'mcMenuOut .12s ease-in forwards' : 'mcMenuIn .14s ease-out',
+                  pointerEvents: graphMenuClosing ? 'none' : 'auto',
                 },
                 onMouseEnter: keepMenuOpen,
                 onMouseLeave: closeMenuSoon,
@@ -1617,14 +1659,23 @@ window.__ModuleLoader__.load({
                   style: S.graphMenuItem,
                   onClick: () => {
                     copyPath(graphMenu.path);
-                    setGraphMenu(null);
+                    closeGraphMenu();
                   },
                 }, '复制路径'),
+                graphMenu.kind === 'brain' ? h('div', { style: S.graphMenuDivider }) : null,
+                graphMenu.kind === 'brain' ? h('button', {
+                  style: S.graphMenuItem,
+                  onClick: () => {
+                    setGraphConfirm({ type: 'copy', id: graphMenu.id, name: graphMenu.name });
+                    closeGraphMenu();
+                  },
+                }, '复制数据') : null,
+                graphMenu.kind === 'brain' ? h('div', { style: S.graphMenuDivider }) : null,
                 graphMenu.kind === 'brain' ? h('button', {
                   style: S.graphMenuItem,
                   onClick: () => {
                     setLinkDraft({ kind: 'workspace', from: graphMenu.id, x: 0, y: 0 });
-                    setGraphMenu(null);
+                    closeGraphMenu();
                   },
                 }, '建立连接') : null,
                 graphMenu.kind === 'brain' ? h('button', {
@@ -1634,22 +1685,16 @@ window.__ModuleLoader__.load({
                       kind: 'brain', from: graphMenu.id,
                       x: 0, y: 0, startX: 0, startY: 0, moved: false,
                     });
-                    setGraphMenu(null);
+                    closeGraphMenu();
                   },
                 }, '整合超级大脑') : null,
+                graphMenu.kind === 'brain' ? h('div', { style: S.graphMenuDivider }) : null,
                 graphMenu.kind === 'brain' ? h('button', {
-                  style: S.graphMenuItem,
-                  onClick: () => {
-                    setGraphConfirm({ type: 'copy', id: graphMenu.id, name: graphMenu.name });
-                    setGraphMenu(null);
-                  },
-                }, '复制数据') : null,
-                graphMenu.kind === 'brain' ? h('button', {
-                  style: S.graphMenuItem,
+                  style: { ...S.graphMenuItem, color: '#ef4444' },
                   onClick: () => {
                     setDeleteBrainData(false);
                     setGraphConfirm({ type: 'delete', id: graphMenu.id, name: graphMenu.name });
-                    setGraphMenu(null);
+                    closeGraphMenu();
                   },
                 }, '删除') : null
               ) : null),
