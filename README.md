@@ -28,12 +28,35 @@ DSH 的本地长期记忆插件：
 
 ## 安装
 
-见 [dsh-bundle/INSTALL.md](dsh-bundle/INSTALL.md)。
+### 方式一：网盘离线包（推荐，GitHub 打不开时）
 
-简要：
+下载：
 
-1. 拿到 Beta 包；
-2. 在 DSH 中安装 `dsh-bundle`；
+- 链接：<https://pan.xunlei.com/s/VP4hbDSEigAzdxOl93f1LJMtA1?pwd=5tha>
+- 提取码：`5tha`
+- 文件：`DSH记忆插件-Beta2.0-本地安装包.zip`
+- SHA256：`8C8575A9F78114C507B805425A78559FFCDE7A38B770BD22460376D50F747A8E`
+
+步骤：
+
+1. 下载并解压；
+2. DSH → Plugins → `+ Add plugin`；
+3. 选择「试试其他方式」→ 本地文件夹；
+4. 选解压后包含 `package.json` 的文件夹；
+5. 重启 DSH。
+
+### 方式二：GitHub
+
+```text
+https://github.com/IStarFoxI/dsh-memory-calendar
+```
+
+安装说明见 [dsh-bundle/INSTALL.md](dsh-bundle/INSTALL.md)。
+
+### 方式三：手动 bundle
+
+1. 拿到 `dsh-bundle`；
+2. 在 DSH 中安装该目录；
 3. 重启 DSH；
 4. 打开「设置 → 记忆」。
 
