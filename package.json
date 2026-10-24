@@ -1,7 +1,7 @@
 {
   "name": "dsh-memory-calendar",
   "version": "1.0.0-beta.2",
-  "private": true,
+  "private": false,
   "type": "module",
   "description": "Local-first long-term memory for DeepSeek Harness",
   "main": "./dsh-bundle/index.js",
@@ -34,6 +34,10 @@
         "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "tag": "beta"
   },
   "keywords": [
     "dsh",
