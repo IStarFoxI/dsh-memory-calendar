@@ -1247,9 +1247,47 @@ function stats() {
 
 // ── main ────────────────────────────────────────────────────────────
 
+function withPackagerLock(fn) {
+  fs.mkdirSync(root, { recursive: true });
+  const lock = path.join(root, '.packager.lock');
+  let fd;
+  try {
+    fd = fs.openSync(lock, 'wx');
+  } catch (err) {
+    if (err?.code !== 'EEXIST') throw err;
+    let stale = false;
+    try { stale = Date.now() - fs.statSync(lock).mtimeMs > 3_600_000; } catch { /* ignore */ }
+    let holderAlive = true;
+    try {
+      const info = JSON.parse(fs.readFileSync(lock, 'utf8'));
+      if (info?.pid) {
+        try {
+          process.kill(Number(info.pid), 0);
+        } catch (killErr) {
+          // 只有 ESRCH 才能确认进程不存在；EPERM 等权限错误仍当作活锁
+          if (killErr?.code === 'ESRCH') holderAlive = false;
+        }
+      }
+    } catch { /* unknown holder; rely on age */ }
+    if (stale || !holderAlive) {
+      try { fs.unlinkSync(lock); } catch { /* ignore */ }
+      fd = fs.openSync(lock, 'wx');
+    } else {
+      throw new Error('packager lock busy; another package is running');
+    }
+  }
+  try {
+    fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
+    return fn();
+  } finally {
+    try { fs.closeSync(fd); } catch { /* ignore */ }
+    try { fs.unlinkSync(lock); } catch { /* ignore */ }
+  }
+}
+
 try {
   if (cmd === 'scan') scan();
-  else if (cmd === 'package') packageAll();
+  else if (cmd === 'package') withPackagerLock(packageAll);
   else if (cmd === 'pending') pending();
   else if (cmd === 'aggregate') aggregate();
   else if (cmd === 'read') readPackage();
