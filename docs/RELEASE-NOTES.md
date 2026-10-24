@@ -15,6 +15,16 @@
 - 精确重复计数 `duplicateCount`；
 - 20 题召回验收：20/20 相关命中，负题 2/2 正确 `noHit`。
 
+## 安全与数据保护
+
+- 新工作区首次检查点可正常建立索引；
+- `brains.json` / `pins.json` 损坏时备份并 fail-closed；
+- 索引/配置文件使用唯一临时文件 + 原子替换；
+- 大脑 root 只允许 `.memory-calendar` 目录，删除数据前校验；
+- HTTP 路由限制 loopback Host，降低 DNS rebinding 读取风险；
+- 孤儿包只移到 `.trash`，不永久删除；
+- 只读大脑不再接收检查点/pin 写入。
+
 ## 已知限制
 
 - 完整原始归档（完整保存）未完成，Beta 3.0 目标；
