@@ -714,13 +714,15 @@ window.__ModuleLoader__.load({
           const laneX = Math.min(x1, x2) - 24;
           return `M ${x1} ${y1} C ${laneX} ${y1}, ${laneX} ${y2}, ${x2} ${y2}`;
         };
+        const activeBg = graphDark ? '#243a5e' : 'var(--dsw-alias-brand-primary)';
+        const activeBorder = graphDark ? '#6ea8fe' : 'var(--dsw-alias-brand-primary)';
         const nodeBox = (node, active) => ({
           position: 'absolute',
           left: node.nodeX, top: node.nodeY, width: node.w, height: node.h,
           padding: '6px 18px', boxSizing: 'border-box', borderRadius: 10,
           overflow: 'visible', cursor: 'pointer', userSelect: 'none',
-          background: active ? 'var(--dsw-alias-brand-primary)' : (graphDark ? '#24262c' : '#ffffff'),
-          border: `1px solid ${active ? 'var(--dsw-alias-brand-primary)' : (graphDark ? '#3a3d45' : 'var(--dsw-alias-border-l1)')}`,
+          background: active ? activeBg : (graphDark ? '#24262c' : '#ffffff'),
+          border: `1px solid ${active ? activeBorder : (graphDark ? '#3a3d45' : 'var(--dsw-alias-border-l1)')}`,
           color: active ? '#FFFFFF' : (graphDark ? '#e8e8ea' : 'var(--dsw-alias-label-primary)'),
           boxShadow: hoverNode === node.id
             ? '0 0 0 3px rgba(34,197,94,.28), 0 8px 24px rgba(0,0,0,.22)'
