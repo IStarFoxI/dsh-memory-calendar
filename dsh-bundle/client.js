@@ -1617,6 +1617,7 @@ window.__ModuleLoader__.load({
                 graphMenu.kind === 'brain' ? h('button', {
                   style: S.graphMenuItem,
                   onClick: () => {
+                    setDeleteBrainData(false);
                     setGraphConfirm({ type: 'delete', id: graphMenu.id, name: graphMenu.name });
                     setGraphMenu(null);
                   },
@@ -1651,7 +1652,7 @@ window.__ModuleLoader__.load({
               }),
               '同时删除记忆数据（不可恢复）') : null,
             h('div', { style: S.rowInline },
-              h('button', { style: S.btn, onClick: () => setGraphConfirm(null) }, '取消'),
+              h('button', { style: S.btn, onClick: () => { setGraphConfirm(null); setDeleteBrainData(false); } }, '取消'),
               h('button', {
                 style: { ...S.btn, ...S.btnPrimary },
                 onClick: async () => {
@@ -1665,6 +1666,7 @@ window.__ModuleLoader__.load({
                       await postBrain({ action: 'remove', id: graphConfirm.id, deleteData: deleteBrainData });
                     }
                     setGraphConfirm(null);
+                    setDeleteBrainData(false);
                   } catch (err) { setBrainMsg(`操作失败：${err.message}`); }
                 },
               }, graphConfirm.type === 'save'
@@ -2068,14 +2070,15 @@ window.__ModuleLoader__.load({
                   : (p.tags || []);
                 const shownTags = tags.slice(0, 5);
                 const extraTags = tags.length - shownTags.length;
-                const shortId = p.id.length > 28 ? `${p.id.slice(0, 28)}…` : p.id;
-                const rawTitle = p.bigTag || p.id;
+                const id = String(p.id || '');
+                const shortId = id.length > 28 ? `${id.slice(0, 28)}…` : id;
+                const rawTitle = String(p.bigTag || id);
                 const displayTitle = rawTitle.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+/, '') || rawTitle;
-                return h('div', { key: p.id, style: S.row },
+                return h('div', { key: id, style: S.row },
                   h('div', { style: S.rowTitle, title: rawTitle }, displayTitle),
                   h('div', {
                     style: { ...S.rowMeta, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-                    title: p.id,
+                    title: id,
                   }, `${p.date || ''} · ${p.messageCount || 0} 条消息 · ${shortId}`),
                   h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 2 }, title: tags.join('、') },
                     shownTags.map((t) => h('span', { key: t, style: S.tag }, t)),
@@ -2097,7 +2100,7 @@ window.__ModuleLoader__.load({
       return h('div', { style: S.page },
         h('h2', { style: S.title }, '记忆日历 · 记忆说明'),
         h('p', { style: S.note },
-          '面向使用者的简短说明。完整版在 memory-plugin/用户说明书.md，内容更详细。'),
+          '面向使用者的简短说明。完整版在仓库 docs/用户说明书.md，内容更详细。'),
         section('它是什么', [
           p('把过去的对话整理成本地“文本包”，需要时再检索；不上传、不云同步。'),
           p('它不会主动把整段记忆塞进每一轮对话，也不会替用户判断敏感内容。'),

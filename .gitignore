@@ -1,4 +1,5 @@
 .memory-calendar/
+.trash/
 backups/
 node_modules/
 *.zip

@@ -22,8 +22,6 @@ const TAG_ALIASES = new Map(Object.entries({
   '记忆压缩': '记忆插件',
   '上下文压缩': '记忆插件',
   'memory plugin': '记忆插件',
-  'star dimension': '星维',
-  '星维 · star dimension': '星维',
 }));
 
 function canonicalTag(tag) {
@@ -39,10 +37,24 @@ function resolveSettingsRoot(config, ctx) {
     const home = process.env.USERPROFILE || process.env.HOME || '';
     return path.resolve(String(configured).replace(/^~(?=$|[\\/])/, home));
   }
-  // Host 的 process.cwd() 不一定是工作区；优先默认工作区
-  const base = ctx?.workingDirectory?.defaultDirectory || process.cwd();
-  const local = path.join(base, '.memory-calendar');
-  if (existsSync(local)) return local;
+  // Host 的 process.cwd()/defaultDirectory 不一定是当前工作区；
+  // 优先从最近可见 session 的 cwd 推导，再回落 DSH_HOME。
+  const bases = [
+    ctx?.workingDirectory?.defaultDirectory,
+    process.cwd(),
+  ].filter(Boolean);
+  for (const base of bases) {
+    const local = path.join(base, '.memory-calendar');
+    if (existsSync(local)) return local;
+  }
+  try {
+    for (const session of ctx?.sessions?.list?.() || []) {
+      const cwd = session?.header?.cwd;
+      if (!cwd) continue;
+      const local = path.join(cwd, '.memory-calendar');
+      if (existsSync(local)) return local;
+    }
+  } catch { /* optional sessions */ }
   const home = process.env.DSH_HOME || path.join(process.env.USERPROFILE || process.env.HOME || '.', '.dsh');
   return path.join(home, 'memory-calendar');
 }
@@ -283,25 +295,31 @@ function timeline(root, opts = {}, scope = 'shared', sessionId = '') {
 function findPackageFile(root, id) {
   const base = path.join(root, 'packages');
   if (!existsSync(base)) return null;
-  const candidates = [];
+  const wanted = String(id || '');
+  if (!wanted) return null;
+  const found = [];
   const walk = (d) => {
     for (const ent of readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, ent.name);
-      if (ent.isDirectory()) walk(p);
-      else if (ent.name.includes(id) && /\.json\.(zst|gz)$/.test(ent.name)) candidates.push(p);
+      if (ent.isDirectory()) { walk(p); continue; }
+      if (!/\.json\.(zst|gz)$/.test(ent.name)) continue;
+      const bare = ent.name.replace(/\.json\.(zst|gz)$/, '');
+      if (bare === wanted) found.push(p);
     }
   };
   walk(base);
-  return candidates.find((p) => path.basename(p).startsWith(`${id}.json`)) ?? candidates[0] ?? null;
+  return found[0] ?? null;
 }
 
 function loadPackage(root, id) {
   if (!id) throw new Error('packageId is required');
   const file = findPackageFile(root, id);
-  if (!file) throw new Error(`package not found: ${id}`);
+  if (!file) throw new Error(`package not found: ${id} (exact packageId required)`);
   const buf = readFileSync(file);
   const json = file.endsWith('.zst') ? zlib.zstdDecompressSync(buf) : zlib.gunzipSync(buf);
-  return { file, pkg: JSON.parse(json.toString('utf8')) };
+  const pkg = JSON.parse(json.toString('utf8'));
+  if (pkg.packageId && pkg.packageId !== id) throw new Error(`package id mismatch: ${id}`);
+  return { file, pkg };
 }
 
 function readPackage(root, id, chars = 4000, scope = 'shared', sessionId = '') {
@@ -336,17 +354,26 @@ function pinsPath(root) {
 }
 
 function readPins(root) {
-  const data = readJson(pinsPath(root), { version: 1, pins: [] });
+  const file = pinsPath(root);
+  if (!existsSync(file)) return { version: 1, pins: [] };
+  let data;
+  try {
+    data = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    const backup = `${file}.corrupt-${Date.now()}`;
+    try { renameSync(file, backup); } catch { /* best effort */ }
+    throw new Error(`pins.json is corrupt; moved to ${backup}`);
+  }
   return {
     version: 1,
-    pins: Array.isArray(data.pins) ? data.pins : [],
+    pins: Array.isArray(data?.pins) ? data.pins : [],
   };
 }
 
 function writePins(root, data) {
   mkdirSync(root, { recursive: true });
   const file = pinsPath(root);
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
   renameSync(tmp, file);
 }
@@ -513,8 +540,7 @@ function sanitizeBrains(raw, settingsRoot) {
 
 function readBrains(settingsRoot) {
   const file = path.join(settingsRoot, 'meta', 'brains.json');
-  const raw = readJson(file, null);
-  if (!raw) {
+  if (!existsSync(file)) {
     const ws = defaultWorkspace(settingsRoot);
     const data = {
       brains: [defaultBrain(settingsRoot)],
@@ -526,6 +552,14 @@ function readBrains(settingsRoot) {
     writeBrains(settingsRoot, data);
     return data;
   }
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    const backup = `${file}.corrupt-${Date.now()}`;
+    try { renameSync(file, backup); } catch { /* best effort */ }
+    throw new Error(`brains.json is corrupt; moved to ${backup}`);
+  }
   return sanitizeBrains(raw, settingsRoot);
 }
 
@@ -533,7 +567,7 @@ function writeBrains(settingsRoot, data) {
   const dir = path.join(settingsRoot, 'meta');
   mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'brains.json');
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmp, JSON.stringify(data, null, 2));
   renameSync(tmp, file);
 }
@@ -571,6 +605,14 @@ function normWorkspacePath(value) {
   return String(value || '').replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
 }
 
+function isMemoryRoot(root) {
+  if (!root) return false;
+  const dir = path.resolve(String(root));
+  if (path.basename(dir) === '.memory-calendar') return true;
+  return existsSync(path.join(dir, 'episodes.json'))
+    || existsSync(path.join(dir, 'packages', 'index.json'));
+}
+
 function checkpointRootForWorkspace(settingsRoot, wsKey) {
   const data = readBrains(settingsRoot);
   const entry = data.workspaces?.[wsKey];
@@ -579,7 +621,8 @@ function checkpointRootForWorkspace(settingsRoot, wsKey) {
   }
   if (entry.enabled === false || entry.private === true) return null;
   const brain = brainById(data, entry.activeId || data.defaultActiveId);
-  return brain?.root || null;
+  if (!brain || brain.readOnly === true) return null;
+  return brain.root || null;
 }
 
 function brainSummaries(data, currentKey) {
@@ -605,21 +648,25 @@ function readSet(data, entry, extraIds = []) {
   return ids
     .map((id) => brainById(data, id))
     .filter(Boolean)
-    .map((b, i) => ({ ...b, readOnly: i > 0 }));
+    .map((b, i) => ({ ...b, readOnly: b.readOnly === true || i > 0 }));
 }
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
+    let size = 0;
+    req.setEncoding('utf8');
     req.on('data', (chunk) => {
       data += chunk;
-      if (data.length > 64 * 1024) {
+      size += Buffer.byteLength(chunk, 'utf8');
+      if (size > 64 * 1024) {
         reject(new Error('body too large'));
         req.destroy();
       }
     });
     req.on('end', () => resolve(data));
     req.on('error', reject);
+    req.on('aborted', () => reject(new Error('request aborted')));
   });
 }
 
@@ -658,13 +705,15 @@ function runPackagerAsync(root, sessionId, workspace = '') {
   const workspaceArgs = workspace ? ['--workspace', workspace] : [];
   const run = (args) => new Promise((resolve) => {
     const child = spawn(process.execPath, [file, ...args, '--root', root, '--session', sessionId, ...workspaceArgs], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
     });
     let stderr = '';
     child.stderr.on('data', (chunk) => { stderr = (stderr + String(chunk)).slice(-1200); });
-    const timer = setTimeout(() => child.kill(), 120000);
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      resolve({ ok: false, status: null, stderr: 'packager timeout' });
+    }, 120000);
     child.on('error', (err) => {
       clearTimeout(timer);
       resolve({ ok: false, status: null, stderr: err.message });
@@ -695,6 +744,27 @@ function sameOriginRequest(req, ctx) {
   } catch {
     return false;
   }
+}
+
+function localHostRequest(req, ctx) {
+  const host = String(req.headers?.host || '').trim().toLowerCase();
+  if (!host) return false;
+  const hostname = host.startsWith('[')
+    ? host.slice(1, host.indexOf(']'))
+    : host.replace(/:\d+$/, '');
+  const allowed = new Set(['127.0.0.1', 'localhost', '::1']);
+  try { allowed.add(new URL(ctx.webServer.getOrigin()).hostname.toLowerCase()); } catch { /* optional */ }
+  const remote = String(req.socket?.remoteAddress || '');
+  if (remote && !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) return false;
+  return allowed.has(hostname);
+}
+
+function requireLocalRequest(req, res, ctx) {
+  if (localHostRequest(req, ctx)) return true;
+  res.statusCode = 403;
+  res.setHeader('content-type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify({ error: 'local host required' }));
+  return false;
 }
 
 export function apply(ctx, config) {
@@ -748,10 +818,11 @@ export function apply(ctx, config) {
         const collect = (level) => {
           let out = [];
           for (const brain of roots) {
+            const levelLimit = level === 1 ? 3 : level === 2 ? 5 : 8;
             const result = searchEpisodes(
               brain.root,
               args.query,
-              { ...args, deep: level === 3 },
+              { ...args, deep: level === 3, limit: Math.max(Number(args.limit) || 0, levelLimit) },
               scope === 'session' ? 'session' : 'shared',
               sessionId,
             );
@@ -950,6 +1021,7 @@ export function apply(ctx, config) {
         const { roots, workspace } = await getBrainSet(exec);
         const root = roots[0]?.root;
         if (!root) throw new Error('no active brain');
+        if (roots[0]?.readOnly) throw new Error('active brain is read-only; choose a writable brain first');
         const text = String(args.text || '').trim();
         if (!text) throw new Error('text is required');
         const tags = normalizePinTags(args.tags);
@@ -983,14 +1055,14 @@ export function apply(ctx, config) {
         if (!root) throw new Error('no active brain');
         const q = String(args.query || '').toLowerCase();
         const limit = Math.max(1, Math.min(Number(args.limit) || 20, 100));
-        const pins = readPins(root).pins
+        const matched = readPins(root).pins
           .filter((p) => p.workspace === workspace)
           .filter((p) => !q || p.text.toLowerCase().includes(q)
             || (p.tags || []).some((t) => t.toLowerCase().includes(q))
             || p.id.toLowerCase().includes(q))
-          .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-          .slice(0, limit);
-        return JSON.stringify({ workspace, total: pins.length, pins, root }, null, 2);
+          .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+        const pins = matched.slice(0, limit);
+        return JSON.stringify({ workspace, total: matched.length, pins, root }, null, 2);
       },
     }),
     defineTool({
@@ -1135,6 +1207,7 @@ export function apply(ctx, config) {
       kind: 'exact',
       path: '/api/memory-calendar/summary',
       async handler(req, res) {
+        if (!requireLocalRequest(req, res, ctx)) return;
         try {
           const settingsRoot = resolveSettingsRoot(config, ctx);
           const data = readBrains(settingsRoot);
@@ -1176,6 +1249,7 @@ export function apply(ctx, config) {
       kind: 'exact',
       path: '/api/memory-calendar/settings',
       async handler(req, res) {
+        if (!requireLocalRequest(req, res, ctx)) return;
         res.setHeader('content-type', 'application/json; charset=utf-8');
         res.setHeader('cache-control', 'no-store');
         try {
@@ -1211,6 +1285,7 @@ export function apply(ctx, config) {
       kind: 'exact',
       path: '/api/memory-calendar/usage',
       handler(req, res) {
+        if (!requireLocalRequest(req, res, ctx)) return;
         res.setHeader('content-type', 'application/json; charset=utf-8');
         res.setHeader('cache-control', 'no-store');
         const names = ['memory_search', 'memory_timeline', 'memory_read'];
@@ -1258,6 +1333,7 @@ export function apply(ctx, config) {
       kind: 'exact',
       path: '/api/memory-calendar/auto-status',
       handler(req, res) {
+        if (!requireLocalRequest(req, res, ctx)) return;
         res.setHeader('content-type', 'application/json; charset=utf-8');
         res.setHeader('cache-control', 'no-store');
         const autoConfig = resolveAutoConfig(config);
@@ -1296,6 +1372,7 @@ export function apply(ctx, config) {
       kind: 'exact',
       path: '/api/memory-calendar/checkpoint',
       async handler(req, res) {
+        if (!requireLocalRequest(req, res, ctx)) return;
         res.setHeader('content-type', 'application/json; charset=utf-8');
         res.setHeader('cache-control', 'no-store');
         if (req.method !== 'POST') {
@@ -1387,6 +1464,7 @@ export function apply(ctx, config) {
       kind: 'exact',
       path: '/api/memory-calendar/brains',
       async handler(req, res) {
+        if (!requireLocalRequest(req, res, ctx)) return;
         res.setHeader('content-type', 'application/json; charset=utf-8');
         res.setHeader('cache-control', 'no-store');
         if (req.method !== 'GET' && req.method !== 'POST') {
@@ -1486,12 +1564,14 @@ export function apply(ctx, config) {
             } else if (action === 'add') {
               const root = path.resolve(String(body.root || ''));
               if (!root || !existsSync(root)) throw new Error('root not found');
+              if (!isMemoryRoot(root)) throw new Error('root is not a .memory-calendar directory');
               const name = String(body.name || '').trim() || '新大脑';
               const id = `brain-${Date.now().toString(36)}`;
               data.brains.push({ id, name, root, readOnly: true });
             } else if (action === 'copy') {
               const source = brainById(data, body.id);
               if (!source) throw new Error('brain not found');
+              if (!isMemoryRoot(source.root)) throw new Error('source is not a .memory-calendar directory');
               const stamp = Date.now().toString(36);
               const dest = `${source.root}-copy-${stamp}`;
               if (existsSync(dest)) throw new Error('copy destination already exists');
@@ -1558,6 +1638,9 @@ export function apply(ctx, config) {
               const remaining = data.brains.filter((b) => b.id !== brain.id);
               if (!remaining.length) throw new Error('cannot remove last brain');
               if (body.deleteData === true) {
+                if (!isMemoryRoot(brain.root)) {
+                  throw new Error('refuse to delete: brain root is not a .memory-calendar directory');
+                }
                 rmSync(brain.root, { recursive: true, force: true });
               }
               data.brains = remaining;
@@ -1594,6 +1677,7 @@ export function apply(ctx, config) {
       kind: 'exact',
       path: '/api/memory-calendar/package-now',
       async handler(req, res) {
+        if (!requireLocalRequest(req, res, ctx)) return;
         res.setHeader('content-type', 'application/json; charset=utf-8');
         res.setHeader('cache-control', 'no-store');
         if (req.method !== 'POST') {

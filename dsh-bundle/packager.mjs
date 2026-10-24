@@ -11,7 +11,7 @@
  * 用法：
  *   node memory-prototype.mjs scan
  *   node memory-prototype.mjs timeline --from 2026-08-01 --granularity day
- *   node memory-prototype.mjs search --query "星维" --limit 10
+ *   node memory-prototype.mjs search --query "记忆插件" --limit 10
  */
 
 import fs from 'node:fs';
@@ -310,8 +310,6 @@ const TAG_ALIASES = new Map(Object.entries({
   '记忆压缩': '记忆插件',
   '上下文压缩': '记忆插件',
   'memory plugin': '记忆插件',
-  'star dimension': '星维',
-  '星维 · star dimension': '星维',
 }));
 
 function canonicalTag(tag) {
@@ -331,7 +329,6 @@ function isCleanTag(t) {
 
 const KNOWN_PHRASES = [
   '记忆插件', '上下文压缩', '无损压缩', '标签系统', '压缩比',
-  '星维', '冰元素', '冰锥', '大肥鱼',
 ];
 
 function extractTags(text, date, week) {
@@ -503,13 +500,21 @@ function scan() {
     try {
       const prev = JSON.parse(fs.readFileSync(episodesFile, 'utf8'));
       keptEpisodes = (prev.episodes || []).filter((e) => !scannedIds.has(e.sessionId));
-    } catch { /* 旧索引坏了就当没有 */ }
+    } catch {
+      const backup = `${episodesFile}.corrupt-${Date.now()}`;
+      try { fs.renameSync(episodesFile, backup); } catch { /* best effort */ }
+      throw new Error(`episodes.json is corrupt; moved to ${backup}`);
+    }
   }
   if (values.session && fs.existsSync(manifestFile)) {
     try {
       const prev = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
       keptSessions = (prev.sessions || []).filter((s) => !scannedIds.has(s.id));
-    } catch { /* ignore */ }
+    } catch {
+      const backup = `${manifestFile}.corrupt-${Date.now()}`;
+      try { fs.renameSync(manifestFile, backup); } catch { /* best effort */ }
+      throw new Error(`manifest.json is corrupt; moved to ${backup}`);
+    }
   }
 
   // 去重：fork/复制的 session 会产生同内容 episode
@@ -530,7 +535,8 @@ function scan() {
   fs.mkdirSync(root, { recursive: true });
   // 不落 text：它可以从 messages 还原；避免 episodes.json 里同一段文本存两遍
   const serializable = unique.map(({ text, ...rest }) => rest);
-  fs.writeFileSync(episodesFile, JSON.stringify({
+  const episodesTmp = `${episodesFile}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(episodesTmp, JSON.stringify({
     version: 1,
     generatedAt: new Date().toISOString(),
     sessionsRoot,
@@ -538,7 +544,9 @@ function scan() {
     duplicatesSkipped: duplicates,
     episodes: serializable,
   }, null, 2));
-  fs.writeFileSync(manifestFile, JSON.stringify({
+  fs.renameSync(episodesTmp, episodesFile);
+  const manifestTmp = `${manifestFile}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(manifestTmp, JSON.stringify({
     version: 1,
     generatedAt: new Date().toISOString(),
     workspace,
@@ -550,6 +558,7 @@ function scan() {
     totalMessages: unique.reduce((n, e) => n + e.messageCount, 0),
     totalChars: unique.reduce((n, e) => n + e.chars, 0),
   }, null, 2));
+  fs.renameSync(manifestTmp, manifestFile);
 
   if (duplicates > 0) console.log(`\nskipped ${duplicates} duplicate episodes (session forks)`);
   console.log(`\nwrote ${unique.length} episodes -> ${path.join(root, 'episodes.json')}`);
@@ -811,8 +820,13 @@ function packageAll() {
   const indexFile = path.join(pkgRoot, 'index.json');
   let kept = [];
   let indexBroken = false;
+  let indexMissing = false;
   const hadIndex = fs.existsSync(indexFile);
-  if (values.session && !hadIndex) indexBroken = true;
+  if (values.session && !hadIndex) {
+    // 全新工作区：允许 bootstrap 索引；不清理孤儿文件，等全量 package 再收口
+    indexMissing = true;
+    indexBroken = true;
+  }
   if (values.session && hadIndex) {
     try {
       const prev = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
@@ -831,11 +845,11 @@ function packageAll() {
   for (const p of [...kept, ...index]) byId.set(p.id, p);
   const merged = [...byId.values()].sort((a, b) => a.start - b.start);
 
-  if (indexBroken) {
-    throw new Error('package index missing or unreadable; run full package without --session first');
+  if (indexBroken && !indexMissing) {
+    throw new Error('package index unreadable; run full package without --session first');
   }
 
-  const indexTmp = `${indexFile}.tmp`;
+  const indexTmp = `${indexFile}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(indexTmp, JSON.stringify({
     version: 1,
     generatedAt: new Date().toISOString(),
@@ -843,20 +857,27 @@ function packageAll() {
   }, null, 2));
   fs.renameSync(indexTmp, indexFile);
 
-  // 每次打包都清掉孤儿包（内容变化后旧 hash 会留下旧文件；--session 也一样）
-  // 索引损坏或条目缺 file 时宁可不清理，也不能误删其他 session 的包
+  // 孤儿包不永久删除，只移到 root/.trash/<时间>/；索引不完整时完全不搬
+  // 这样即使路径/索引有问题，也还有人工恢复机会
   let pruned = 0;
-  const keep = new Set(merged.map((p) => p.file).filter(Boolean));
-  const canPrune = !indexBroken && merged.length > 0 && merged.every((p) => p.file);
+  const normRel = (value) => String(value || '').replace(/\\/g, '/').toLowerCase();
+  const keep = new Set(merged.map((p) => normRel(p.file)).filter(Boolean));
+  const canPrune = !indexBroken && merged.length > 0 && merged.every((p) => {
+    const file = String(p.file || '');
+    return file && !path.isAbsolute(file) && !file.split(/[\\/]/).includes('..');
+  });
   if (canPrune) {
+    const trashRoot = path.join(root, '.trash', new Date().toISOString().replace(/[:.]/g, '-'));
     const walkPkg = (d) => {
       for (const ent of fs.readdirSync(d, { withFileTypes: true })) {
         const p = path.join(d, ent.name);
         if (ent.isDirectory()) { walkPkg(p); continue; }
         if (!/\.json\.(zst|gz)$/.test(ent.name)) continue;
-        const rel = path.relative(root, p);
+        const rel = normRel(path.relative(root, p));
         if (!keep.has(rel)) {
-          fs.rmSync(p, { force: true });
+          const dest = path.join(trashRoot, path.relative(root, p));
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.renameSync(p, dest);
           pruned += 1;
         }
       }
@@ -867,7 +888,7 @@ function packageAll() {
   }
 
   console.log(`packaged ${count} episodes -> ${pkgRoot} (${COMPRESS.ext})`);
-  console.log(`package index: ${merged.length} total${pruned ? `, pruned ${pruned} orphan(s)` : ''}`);
+  console.log(`package index: ${merged.length} total${pruned ? `, moved ${pruned} orphan(s) to .trash` : ''}`);
   console.log('next: aggregate --level day --yes   (prototype stand-in for the bottom-right confirm dialog)');
 }
 
