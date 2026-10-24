@@ -45,7 +45,21 @@ DSH 的本地长期记忆插件：
 4. 选解压后包含 `package.json` 的文件夹；
 5. 重启 DSH。
 
-### 方式二：GitHub
+### 方式二：npm（Beta）
+
+DSH → Plugins → `+ Add plugin`，输入：
+
+```text
+dsh-memory-calendar@1.0.0-beta.2
+```
+
+或：
+
+```text
+dsh-memory-calendar@beta
+```
+
+### 方式三：GitHub
 
 ```text
 https://github.com/IStarFoxI/dsh-memory-calendar
@@ -53,7 +67,7 @@ https://github.com/IStarFoxI/dsh-memory-calendar
 
 安装说明见 [dsh-bundle/INSTALL.md](dsh-bundle/INSTALL.md)。
 
-### 方式三：手动 bundle
+### 方式四：手动 bundle
 
 1. 拿到 `dsh-bundle`；
 2. 在 DSH 中安装该目录；
