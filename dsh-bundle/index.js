@@ -176,6 +176,12 @@ function duplicateLookup(episodes) {
 function searchEpisodes(root, query, opts = {}, scope = 'shared', sessionId = '') {
   const episodes = loadEpisodes(root);
   const duplicateById = duplicateLookup(episodes);
+  const pkgIndex = readJson(path.join(root, 'packages', 'index.json'), { packages: [] }).packages || [];
+  const pkgByEpisode = new Map();
+  for (const p of pkgIndex) {
+    pkgByEpisode.set(`${p.sessionId}|${p.start}|${p.end}`, p.id);
+    if (p.bigTag) pkgByEpisode.set(`${p.sessionId}|${p.date}|${p.bigTag}`, p.id);
+  }
   const q = String(query || '').trim();
   if (!q) return { query: q, deep: false, total: 0, hits: [] };
 
@@ -209,9 +215,18 @@ function searchEpisodes(root, query, opts = {}, scope = 'shared', sessionId = ''
     const big = (e.bigTag || e.title || '').toLowerCase();
     const bigHits = textTerms.filter((t) => big.includes(t)).length;
     const bigRelevant = textTerms.length > 2 && bigHits >= Math.ceil(textTerms.length * 0.6);
-    const gate = !(textTerms.length > 1 && !allTags && !allTerms && !bigRelevant);
+    const matchedTerms = textTerms.filter((t) => text.includes(t));
+    const matchedTags = tagTerms.filter((_t, index) => Boolean(tagHits[index]));
+    // 长查询不再要求“每个词都命中”：命中足够多的关键词即可进入打分，
+    // 最终仍由 score / noHit 阈值过滤，避免一句话被多余修饰词稀释成 0 命中。
+    const minTerms = textTerms.length <= 1 ? 1 : Math.min(3, Math.ceil(textTerms.length * 0.35));
+    const tagRelevant = tagTerms.length > 0 && matchedTags.length >= Math.ceil(tagTerms.length * 0.5);
+    const gate = textTerms.length <= 1
+      || allTags || allTerms || bigRelevant
+      || matchedTerms.length >= minTerms
+      || tagRelevant;
     const debugRow = opts.debug
-      ? { id: e.id, date: e.date, big: big.slice(0, 80), allTags, allTerms, bigHits, bigRelevant, gate, score: 0 }
+      ? { id: e.id, date: e.date, big: big.slice(0, 80), allTags, allTerms, bigHits, bigRelevant, matchedTerms: matchedTerms.length, gate, score: 0 }
       : null;
     if (debugRow) debugRows.push(debugRow);
     if (!gate) continue;
@@ -238,6 +253,9 @@ function searchEpisodes(root, query, opts = {}, scope = 'shared', sessionId = ''
     const duplicateSources = duplicateById.get(e.id);
     hits.push({
       id: e.id,
+      packageId: pkgByEpisode.get(`${e.sessionId}|${e.start}|${e.end}`)
+        || pkgByEpisode.get(`${e.sessionId}|${e.date}|${e.bigTag}`)
+        || '',
       date: e.date,
       time: `${e.startTime}-${e.endTime}`,
       bigTag: e.bigTag || e.title,
@@ -311,14 +329,37 @@ function findPackageFile(root, id) {
   return found[0] ?? null;
 }
 
+function packageForEpisode(root, episode) {
+  const index = readJson(path.join(root, 'packages', 'index.json'), { packages: [] });
+  const list = Array.isArray(index.packages) ? index.packages : [];
+  return list.find((p) => p.sessionId === episode.sessionId
+    && p.start === episode.start
+    && p.end === episode.end)
+    || list.find((p) => p.sessionId === episode.sessionId
+      && p.date === episode.date
+      && p.bigTag === episode.bigTag)
+    || null;
+}
+
 function loadPackage(root, id) {
   if (!id) throw new Error('packageId is required');
-  const file = findPackageFile(root, id);
-  if (!file) throw new Error(`package not found: ${id} (exact packageId required)`);
+  let file = findPackageFile(root, id);
+  let wanted = String(id);
+  if (!file) {
+    const episode = loadEpisodes(root).find((e) => e.id === wanted);
+    if (episode) {
+      const pkgEntry = packageForEpisode(root, episode);
+      if (pkgEntry) {
+        wanted = String(pkgEntry.id);
+        file = findPackageFile(root, wanted);
+      }
+    }
+  }
+  if (!file) throw new Error(`package not found: ${id} (packageId or episodeId required)`);
   const buf = readFileSync(file);
   const json = file.endsWith('.zst') ? zlib.zstdDecompressSync(buf) : zlib.gunzipSync(buf);
   const pkg = JSON.parse(json.toString('utf8'));
-  if (pkg.packageId && pkg.packageId !== id) throw new Error(`package id mismatch: ${id}`);
+  if (pkg.packageId && pkg.packageId !== wanted) throw new Error(`package id mismatch: ${id}`);
   return { file, pkg };
 }
 
@@ -899,9 +940,9 @@ export function apply(ctx, config) {
     }),
     defineTool({
       name: 'memory_read',
-      description: 'Read the original text of one memory package by packageId. Use after memory_search when the user needs exact wording or more detail. intensity controls default depth: 1→2000 chars, 2→4000, 3→12000; explicit chars wins.',
+      description: 'Read the original text of one memory package by packageId or episodeId. Use after memory_search when the user needs exact wording or more detail. intensity controls default depth: 1→2000 chars, 2→4000, 3→12000; explicit chars wins.',
       parameters: {
-        packageId: { type: 'string', required: true, description: 'Package id from memory_search.' },
+        packageId: { type: 'string', required: true, description: 'Package id or episode id from memory_search.' },
         intensity: { type: 'number', description: 'Recall intensity 1-3; controls default chars when chars is omitted.' },
         chars: { type: 'number', description: 'Max characters to return (default depends on intensity; max 20000).' },
       },
@@ -940,7 +981,7 @@ export function apply(ctx, config) {
       name: 'memory_expand',
       description: 'Expand one memory package back to its exact original session-log events. Use after memory_search/memory_read when you need the raw source, including tool or reasoning events omitted from the text package. Local-only and may contain unredacted content.',
       parameters: {
-        packageId: { type: 'string', required: true, description: 'Package id from memory_search.' },
+        packageId: { type: 'string', required: true, description: 'Package id or episode id from memory_search.' },
         maxEvents: { type: 'number', description: 'Max raw events to return (default 200, max 1000).' },
         maxChars: { type: 'number', description: 'Max JSON characters to return (default 12000, max 50000).' },
       },
