@@ -1,0 +1,7 @@
+.memory-calendar/
+backups/
+node_modules/
+*.zip
+*.log
+.DS_Store
+Thumbs.db

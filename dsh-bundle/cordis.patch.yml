@@ -1,0 +1,6 @@
+- insert:
+    - id: memory-calendar
+      name: dsh-memory-calendar
+      config:
+        storage:
+          root: ''   # 空 = 当前默认工作区/.memory-calendar，再回落 $DSH_HOME/memory-calendar
