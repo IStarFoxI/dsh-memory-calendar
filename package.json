@@ -1,0 +1,52 @@
+{
+  "name": "dsh-memory-calendar",
+  "version": "1.0.0-beta.2",
+  "private": true,
+  "type": "module",
+  "description": "Local-first long-term memory for DeepSeek Harness",
+  "main": "./dsh-bundle/index.js",
+  "exports": {
+    ".": "./dsh-bundle/index.js",
+    "./client": "./dsh-bundle/client.js",
+    "./icon": "./dsh-bundle/icon.svg",
+    "./locale/*.json": "./dsh-bundle/locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dsh-bundle/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.6 <0.3.0-0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./dsh-bundle/cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "memory",
+    "local-first",
+    "long-term-memory"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IStarFoxI/dsh-memory-calendar.git"
+  },
+  "homepage": "https://github.com/IStarFoxI/dsh-memory-calendar#readme"
+}
