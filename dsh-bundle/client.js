@@ -1,3 +1,4 @@
+// 制作者：IStarFoxI 与 DeepSeek V4.1 Flash · awa
 window.__ModuleLoader__.load({
   id: 'dsh-memory-calendar',
   factory(require) {
@@ -2217,7 +2218,9 @@ window.__ModuleLoader__.load({
           p('升级 DSH 或插件前，先备份 .memory-calendar。'),
         ]),
         h('p', { style: S.note },
-          '完整说明：插件目录下的 用户说明书.md'));
+          '完整说明：插件目录下的 用户说明书.md'),
+        h('p', { style: { ...S.note, marginTop: 16, opacity: 0.7 } },
+          '制作者：IStarFoxI 与 DeepSeek V4.1 Flash · awa'));
     }
 
     function MemoryToast() {

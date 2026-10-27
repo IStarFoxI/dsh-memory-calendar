@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// 制作者：IStarFoxI 与 DeepSeek V4.1 Flash · awa
 /**
  * memory-prototype.mjs — Phase 0 只读时间轴索引器（单文件原型）
  *

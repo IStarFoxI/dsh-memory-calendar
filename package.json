@@ -15,6 +15,7 @@
   "files": [
     "dsh-bundle/",
     "README.md",
+    "AUTHORS.md",
     "LICENSE"
   ],
   "engines": {
@@ -39,6 +40,15 @@
     "access": "public",
     "tag": "beta"
   },
+  "author": "IStarFoxI & DeepSeek V4.1 Flash",
+  "contributors": [
+    {
+      "name": "IStarFoxI"
+    },
+    {
+      "name": "DeepSeek V4.1 Flash"
+    }
+  ],
   "keywords": [
     "dsh",
     "deepseek-harness",

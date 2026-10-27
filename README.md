@@ -111,6 +111,14 @@ https://github.com/IStarFoxI/dsh-memory-calendar
 - 插件分 Host / Client / Packager 三个入口；
 - 详见 `dsh-bundle` 内代码与说明。
 
+## 制作者
+
+- 创意、方向、测试：**IStarFoxI**
+- 代码编写：**DeepSeek V4.1 Flash**
+
+见 [AUTHORS.md](AUTHORS.md)。  
+愿你想记住的，都不会被时间冲淡。awa
+
 ## 许可
 
 MIT License，见 [LICENSE](LICENSE)。

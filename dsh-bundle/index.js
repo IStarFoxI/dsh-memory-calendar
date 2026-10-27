@@ -1,5 +1,6 @@
 /**
  * dsh-memory-calendar — Host half (Phase 0 preview)
+ * 制作者：IStarFoxI 与 DeepSeek V4.1 Flash · awa
  *
  * Registers read-only tools over the prototype index:
  *   memory_search / memory_timeline / memory_read / memory_expand
